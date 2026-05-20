@@ -1,40 +1,20 @@
-import os
 import json
 import time
-import requests
+import yfinance as yf
 from datetime import datetime, timezone
 
-API_KEY = os.environ.get("ALPHA_VANTAGE_API_KEY", "")
-BASE_URL = "https://www.alphavantage.co/query"
 OUTPUT_FILE = "prices.json"
 POLL_INTERVAL = 60  # seconds between refreshes
 
 
-def fetch_commodity(symbol: str) -> dict:
-    """Fetch latest daily price for a commodity from Alpha Vantage."""
-    params = {
-        "function": symbol,
-        "interval": "daily",
-        "apikey": API_KEY,
-        "datatype": "json",
-    }
-    response = requests.get(BASE_URL, params=params, timeout=10)
-    response.raise_for_status()
-    data = response.json()
-
-    if "Information" in data:
-        raise RuntimeError(f"Alpha Vantage API limit reached: {data['Information']}")
-    if "Error Message" in data:
-        raise RuntimeError(f"Alpha Vantage error for {symbol}: {data['Error Message']}")
-
-    entries = data.get("data", [])
-    if not entries:
-        raise ValueError(f"No data returned for {symbol}")
-
-    latest = entries[0]
+def fetch_price(ticker: str) -> dict:
+    data = yf.Ticker(ticker)
+    info = data.fast_info
+    price = info.last_price
+    if price is None:
+        raise ValueError(f"No price returned for {ticker}")
     return {
-        "date": latest["date"],
-        "price": float(latest["value"]),
+        "price": round(float(price), 4),
         "currency": "USD",
         "unit": "per barrel",
     }
@@ -62,17 +42,11 @@ def write_snapshot(snapshot: dict) -> None:
 
 
 def run(poll: bool = True) -> None:
-    if not API_KEY:
-        raise EnvironmentError(
-            "ALPHA_VANTAGE_API_KEY environment variable is not set. "
-            "Get a free key at https://www.alphavantage.co/support/#api-key"
-        )
-
     print(f"Starting crude oil data scraper → {OUTPUT_FILE}")
     while True:
         try:
-            wti = fetch_commodity("WTI")
-            brent = fetch_commodity("BRENT")
+            wti = fetch_price("CL=F")
+            brent = fetch_price("BZ=F")
             snapshot = build_snapshot(wti, brent)
             write_snapshot(snapshot)
         except Exception as e:
